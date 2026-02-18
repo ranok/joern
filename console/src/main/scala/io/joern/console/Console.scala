@@ -498,12 +498,14 @@ class Console[T <: Project](loader: WorkspaceLoader[T], baseDir: Path = FileUtil
     longInfo = """
                  |mergeProjects(<targetProjectName>, <sourceProjectName>, [deleteSource])
                  |
-                 |Merge two existing projects by combining their CPGs. The source project
-                 |is merged into the target project. All nodes and edges from the source
-                 |CPG are added to the target CPG.
+                 |Merge two existing projects by combining their source code. The source project's
+                 |code is added to the target project by regenerating CPGs from the source paths.
                  |
                  |This is useful when you have generated CPGs separately (e.g., application
                  |code and library code) and want to combine them for analysis.
+                 |
+                 |Note: This requires that both projects were created from source code (not imported
+                 |from binary CPGs). The source code must still be accessible at the original input paths.
                  |
                  |Parameters:
                  |
@@ -524,7 +526,16 @@ class Console[T <: Project](loader: WorkspaceLoader[T], baseDir: Path = FileUtil
     sourceProjectName: String,
     deleteSource: Boolean = false
   ): Option[Cpg] = {
-    workspace.mergeProjects(targetProjectName, sourceProjectName, deleteSource)
+    workspace.mergeProjects(
+      targetProjectName,
+      sourceProjectName,
+      deleteSource,
+      (path, name, lang) => {
+        Try {
+          new ImportCode(this).apply(path, name, lang)
+        }.toOption
+      }
+    )
   }
 
   // We still tie the project name to the input path here
