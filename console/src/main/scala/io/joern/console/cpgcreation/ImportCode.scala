@@ -21,6 +21,8 @@ class ImportCode[T <: Project](console: io.joern.console.Console[T])(implicit
   private val config             = console.config
   private val workspace          = console.workspace
   protected val generatorFactory = new CpgGeneratorFactory(config)
+  
+  private val PROJECTFILE_NAME = "project.json"
 
   private def checkInputPath(inputPath: String): Unit = {
     if (!Files.exists(Paths.get(inputPath))) {
@@ -271,12 +273,10 @@ class ImportCode[T <: Project](console: io.joern.console.Console[T])(implicit
     val allPaths = existingInputPaths :+ newInputPath
     
     report(s"Project now includes paths: ${allPaths.mkString(", ")}")
-    report(s"")
     report(s"IMPORTANT: To include the new source code in the CPG:")
     report(s"1. Organize all source code under a common parent directory")
     report(s"2. Delete this project: workspace.deleteProject(\"$existingProjectName\")")
     report(s"3. Re-import from the parent directory: importCode(\"/path/to/parent\", \"$existingProjectName\")")
-    report(s"")
     report(s"The CPG has NOT been updated yet - only the project metadata.")
     
     // Update metadata
@@ -299,7 +299,6 @@ class ImportCode[T <: Project](console: io.joern.console.Console[T])(implicit
     import org.json4s.native.Serialization.write as jsonWrite
     
     implicit val formats: DefaultFormats.type = DefaultFormats
-    val PROJECTFILE_NAME = "project.json"
     val content = jsonWrite(Map("inputPath" -> projectFile.inputPath, "name" -> projectFile.name))
     val projectPath = dirPath.resolve(PROJECTFILE_NAME)
     Files.writeString(projectPath, content)
