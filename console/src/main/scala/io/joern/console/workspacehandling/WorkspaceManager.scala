@@ -405,11 +405,11 @@ class WorkspaceManager[ProjectType <: Project](path: String, loader: WorkspaceLo
   /** Add source code from inputPath to an existing project. Creates a temporary CPG for the new code and merges it into
     * the existing project's CPG.
     *
-    * IMPORTANT: This is a placeholder implementation. True CPG merging at the binary level requires sophisticated
+    * IMPORTANT:  This is a placeholder implementation. True CPG merging at the binary level requires sophisticated
     * handling of the flatgraph API. The current implementation will generate a CPG for the new code but cannot yet merge
     * it with the existing CPG.
     *
-    * Workaround: To combine multiple source directories, create a new project that includes all directories from the
+    * Workaround:  To combine multiple source directories, create a new project that includes all directories from the
     * start, or use symbolic links to combine directories before running importCode.
     *
     * @param projectName
@@ -438,13 +438,13 @@ class WorkspaceManager[ProjectType <: Project](path: String, loader: WorkspaceLo
 
   /** Merge two existing projects into a single project by adding the source project's code to the target project.
     *
-    * IMPORTANT: This is a placeholder implementation that depends on addToProject, which is not yet fully implemented.
+    * IMPORTANT:  This is a placeholder implementation that depends on addToProject, which is not yet fully implemented.
     * 
     * This method would work by reading the source code paths from both projects and using the addToProject mechanism
     * to regenerate and merge the CPGs. However, since addToProject is not yet functional, this method will also not
     * work as intended.
     *
-    * Workaround: Create a new project that includes all source directories from the start.
+    * Workaround:  Create a new project that includes all source directories from the start.
     *
     * @param targetProjectName
     *   Name of the project to merge into
