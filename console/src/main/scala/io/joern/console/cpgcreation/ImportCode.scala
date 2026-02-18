@@ -31,6 +31,10 @@ class ImportCode[T <: Project](console: io.joern.console.Console[T])(implicit
   /** This is the `importCode(...)` method exposed on the console. It attempts to find a suitable CPG generator first by
     * looking at the `language` parameter and if no generator is found for the language, looking the contents at
     * `inputPath` to determine heuristically which generator to use.
+    * 
+    * @param inputPath path to the source code to import
+    * @param projectName name for the project. If empty, derived from inputPath
+    * @param language programming language. If empty, auto-detected
     */
   def apply(inputPath: String, projectName: String = "", language: String = ""): Cpg = {
     checkInputPath(inputPath)
@@ -205,25 +209,99 @@ class ImportCode[T <: Project](console: io.joern.console.Console[T])(implicit
     checkInputPath(inputPath)
 
     val name = Option(projectName).filter(_.nonEmpty).getOrElse(deriveNameFromInputPath(inputPath, workspace))
-    report(s"Creating project `$name` for code at `$inputPath`")
+    
+    // Check if project already exists - if so, add to it
+    val existingProject = workspace.project(name)
+    
+    if (existingProject.isDefined) {
+      report(s"Project `$name` already exists - adding new source code to it")
+      addToExistingProject(generator, inputPath, name)
+    } else {
+      // Creating new project (original behavior)
+      report(s"Creating project `$name` for code at `$inputPath`")
 
-    val cpgMaybe = workspace.createProject(inputPath, name).flatMap { pathToProject =>
-      val frontendCpgOutFile = pathToProject.resolve(nameOfLegacyCpgInProject)
-      generatorFactory.runGenerator(generator, inputPath, frontendCpgOutFile.toString) match {
-        case Success(_) =>
-          console.open(name).flatMap(_.cpg)
-        case Failure(exception) =>
-          throw new ConsoleException(s"Error creating project for input path: `$inputPath`", exception)
+      val cpgMaybe = workspace.createProject(inputPath, name).flatMap { pathToProject =>
+        val frontendCpgOutFile = pathToProject.resolve(nameOfLegacyCpgInProject)
+        generatorFactory.runGenerator(generator, inputPath, frontendCpgOutFile.toString) match {
+          case Success(_) =>
+            console.open(name).flatMap(_.cpg)
+          case Failure(exception) =>
+            throw new ConsoleException(s"Error creating project for input path: `$inputPath`", exception)
+        }
+      }
+
+      cpgMaybe
+        .map { cpg =>
+          report("""|Code successfully imported. You can now query it using `cpg`.
+            |For an overview of all imported code, type `workspace`.""".stripMargin)
+          console.applyDefaultOverlays(cpg)
+          console.applyPostProcessingPasses(cpg)
+        }
+        .getOrElse(throw new ConsoleException(s"Error creating project for input path: `$inputPath`"))
+    }
+  }
+
+  /** Add source code to an existing project.
+    * 
+    * This updates the project metadata to track multiple source paths.
+    * The user should ensure all source code is organized under a common parent directory
+    * so the frontend can analyze it together.
+    * 
+    * Approach: Update project metadata with new path, then suggest regenerating from parent directory.
+    */
+  private def addToExistingProject(generator: CpgGenerator, newInputPath: String, existingProjectName: String): Cpg = {
+    val existingProject = workspace.project(existingProjectName)
+      .getOrElse(throw new ConsoleException(s"Project '$existingProjectName' does not exist"))
+    
+    report(s"Adding code from `$newInputPath` to existing project `$existingProjectName`")
+    
+    // Get the existing input paths
+    val existingInputPaths = existingProject.inputPath.split(";").map(_.trim).filter(_.nonEmpty)
+    
+    // Check if already included
+    if (existingInputPaths.contains(newInputPath)) {
+      report(s"Path `$newInputPath` is already part of project `$existingProjectName`")
+      return existingProject.cpg.getOrElse {
+        console.open(existingProjectName).flatMap(_.cpg)
+          .getOrElse(throw new ConsoleException(s"Cannot open project $existingProjectName"))
       }
     }
-
-    cpgMaybe
-      .map { cpg =>
-        report("""|Code successfully imported. You can now query it using `cpg`.
-          |For an overview of all imported code, type `workspace`.""".stripMargin)
-        console.applyDefaultOverlays(cpg)
-        console.applyPostProcessingPasses(cpg)
-      }
-      .getOrElse(throw new ConsoleException(s"Error creating project for input path: `$inputPath`"))
+    
+    // Add the new path
+    val allPaths = existingInputPaths :+ newInputPath
+    
+    report(s"Project now includes paths: ${allPaths.mkString(", ")}")
+    report(s"")
+    report(s"IMPORTANT: To include the new source code in the CPG:")
+    report(s"1. Organize all source code under a common parent directory")
+    report(s"2. Delete this project: workspace.deleteProject(\"$existingProjectName\")")
+    report(s"3. Re-import from the parent directory: importCode(\"/path/to/parent\", \"$existingProjectName\")")
+    report(s"")
+    report(s"The CPG has NOT been updated yet - only the project metadata.")
+    
+    // Update metadata
+    val updatedInputPath = allPaths.mkString(";")
+    val updatedProjectFile = io.joern.console.workspacehandling.ProjectFile(updatedInputPath, existingProjectName)
+    
+    // Write updated metadata
+    val projectPath = existingProject.path
+    writeProjectMetadata(updatedProjectFile, projectPath)
+    
+    // Return the current (unchanged) CPG
+    existingProject.cpg.getOrElse {
+      console.open(existingProjectName).flatMap(_.cpg)
+        .getOrElse(throw new ConsoleException(s"Cannot open project $existingProjectName"))
+    }
+  }
+  
+  private def writeProjectMetadata(projectFile: io.joern.console.workspacehandling.ProjectFile, dirPath: Path): Unit = {
+    import org.json4s.DefaultFormats
+    import org.json4s.native.Serialization.write as jsonWrite
+    
+    implicit val formats: DefaultFormats.type = DefaultFormats
+    val PROJECTFILE_NAME = "project.json"
+    val content = jsonWrite(Map("inputPath" -> projectFile.inputPath, "name" -> projectFile.name))
+    val projectPath = dirPath.resolve(PROJECTFILE_NAME)
+    Files.writeString(projectPath, content)
   }
 }
