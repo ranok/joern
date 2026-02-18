@@ -1,142 +1,75 @@
 # CPG Extension and Merging Feature
 
-This feature adds the ability to extend existing CPGs with additional source code and merge multiple CPGs together.
+## Status: EXPERIMENTAL / NOT YET FULLY FUNCTIONAL
 
-## Overview
+This feature aims to add the ability to extend existing CPGs with additional source code and merge multiple CPGs together. However, the implementation is currently incomplete due to technical limitations with the flatgraph API.
 
-The implementation provides two main capabilities:
+## Current Status
 
-1. **Add Source Files to Existing Project** (`addToProject`): Add new source code to an existing project/CPG
-2. **Merge Projects** (`mergeProjects`): Combine two separate projects into one
+### What's Implemented
+- ✅ API structure and method signatures
+- ✅ Console commands (`addToProject` and `mergeProjects`)
+- ✅ Documentation and usage examples
+- ✅ Unit tests for API structure
+- ✅ Error handling and validation
 
-## Usage
+### What's Not Yet Working
+- ❌ Actual CPG merging at the binary level
+- ❌ Adding source files to existing projects
+- ❌ Merging two separate projects
 
-### Adding Source Code to an Existing Project
+## Technical Challenge
 
-```scala
-// Create an initial project
-joern> importCode("/path/to/app", "myapp")
+The main challenge is that the flatgraph API (used by Joern 4.x+) does not provide a straightforward way to copy nodes from one graph to another. The CPG schema has many specialized node types (File, Method, Call, etc.), each with specific properties. Proper merging would require:
 
-// Later, add library code to the same project
-joern> addToProject("myapp", "/path/to/library")
+1. Type-aware node copying for all CPG node types
+2. Handling of node ID remapping
+3. Edge recreation with proper references
+4. Metadata conflict resolution
+5. Or, access to flatgraph's graph union/merge operations (not currently exposed)
 
-// The CPG now contains both application and library code
-joern> cpg.file.name.l  // Lists files from both sources
-```
+## Workaround
 
-### Merging Two Separate Projects
+Until this feature is fully implemented, you can combine multiple source directories by:
 
-```scala
-// Create two separate projects
-joern> importCode("/path/to/app", "app")
-joern> importCode("/path/to/library", "lib")
+### Option 1: Create a Combined Project from the Start
 
-// Merge the library project into the app project
-joern> mergeProjects("app", "lib", deleteSource = true)
-
-// The app project now contains code from both projects
-joern> workspace  // Shows app project with merged content
-```
-
-## Implementation Details
-
-### Architecture
-
-The implementation consists of three main components:
-
-1. **WorkspaceManager Methods**:
-   - `addToProject(projectName, inputPath, language, cpgGenerator)`: Core logic for adding code to existing projects
-   - `mergeProjects(targetProjectName, sourceProjectName, deleteSource, cpgGenerator)`: Core logic for merging projects
-
-2. **Console API Methods**:
-   - `addToProject(projectName, inputPath, language)`: User-facing API for adding code
-   - `mergeProjects(targetProjectName, sourceProjectName, deleteSource)`: User-facing API for merging projects
-
-3. **CpgMerger Utility**:
-   - `mergeCpg(target, source)`: Low-level utility (currently returns UnsupportedOperationException)
-   - Note: Direct binary CPG merging is complex and not yet fully implemented
-
-### How It Works
-
-Both features work by:
-1. Generating a new CPG from the source code being added
-2. Merging the new CPG with the existing CPG using Joern's DiffGraph mechanism
-3. Updating project metadata to reflect the merged sources
-
-**Key Point**: The merging happens at the source code level, not at the binary CPG level. This means:
-- The original source code must still be accessible
-- Projects must have been created from source code (not imported from binary CPGs)
-- The merging process regenerates CPGs to ensure consistency
-
-### Limitations
-
-1. **Source Code Required**: Both features require access to the original source code. You cannot merge pre-generated binary CPGs that were imported without source.
-
-2. **Same Language**: For best results, merged code should be in the same programming language. Mixed-language projects may work but are not extensively tested.
-
-3. **Metadata Conflicts**: If both projects have conflicting metadata (e.g., different language settings), the behavior is undefined.
-
-4. **Performance**: Regenerating CPGs for large codebases can be time-consuming.
-
-5. **Binary CPG Merging**: Direct merging of binary CPGs (without source code) is not yet implemented due to complexity of the flatgraph API and the need to handle all CPG node types correctly.
-
-## Testing
-
-Tests are provided in `WorkspaceManagerExtensionTests.scala` covering:
-- API structure and parameter validation
-- Error handling for non-existent projects
-- Basic functionality checks
-
-## Future Enhancements
-
-Potential improvements include:
-
-1. **Binary CPG Merging**: Implement true binary CPG merging using flatgraph's serialization format or graph algebra operations
-2. **Conflict Resolution**: Better handling of duplicate nodes and conflicting metadata
-3. **Incremental Updates**: Ability to update only changed files rather than regenerating entire CPGs
-4. **Performance Optimization**: Caching and parallel processing for large codebases
-5. **Mixed-Language Support**: Better handling of projects with multiple programming languages
-
-## Examples
-
-### Example 1: Adding Test Code to Production Code
-
-```scala
-joern> importCode("src/main/java", "myapp")
-joern> addToProject("myapp", "src/test/java")
-joern> cpg.method.name("test.*").size  // Count test methods
-```
-
-### Example 2: Merging Application and Library
-
-```scala
-// Analyze application code
+```bash
+# Instead of:
 joern> importCode("app/", "app")
-joern> cpg.call.name("libraryFunction").size  // 0 - no definition found
+joern> addToProject("app", "lib/")  # Not yet working
 
-// Add library code
-joern> addToProject("app", "lib/")
-joern> cpg.call.name("libraryFunction").size  // Now finds calls
-joern> cpg.method.name("libraryFunction").size  // And the definition
+# Do this:
+joern> importCode(".", "combined")  # Where . contains both app/ and lib/
 ```
 
-### Example 3: Separate Analysis Then Merge
+### Option 2: Use Symbolic Links
 
-```scala
-// Analyze components separately first
-joern> importCode("component1/", "c1")
-joern> importCode("component2/", "c2")
-joern> open("c1")
-joern> cpg.call.name(".*").size  // Analyze c1
-joern> open("c2")
-joern> cpg.call.name(".*").size  // Analyze c2
+```bash
+# Create a directory structure that includes all code
+mkdir combined
+ln -s /path/to/app combined/app
+ln -s /path/to/lib combined/lib
 
-// Now merge for combined analysis
-joern> mergeProjects("c1", "c2", deleteSource = true)
-joern> cpg.call.name(".*").size  // Analyze combined code
+# Then import the combined directory
+joern> importCode("combined/", "myproject")
+```
+
+### Option 3: Copy Files to a Temporary Location
+
+```bash
+# Create a temporary directory with all code
+mkdir /tmp/combined
+cp -r app/* /tmp/combined/
+cp -r lib/* /tmp/combined/
+
+# Import the combined directory
+joern> importCode("/tmp/combined", "myproject")
 ```
 
 ## API Reference
+
+The API methods exist and can be called, but they will return `None` with a helpful error message explaining that the feature is not yet implemented.
 
 ### addToProject
 
@@ -148,12 +81,9 @@ def addToProject(
 ): Option[Cpg]
 ```
 
-**Parameters:**
-- `projectName`: Name of the existing project to add code to
-- `inputPath`: Path to the additional source code
-- `language`: Programming language (optional, auto-detected if empty)
+**Current Behavior:** Returns `None` with a message explaining the feature is not implemented.
 
-**Returns:** The updated CPG, or None if the operation failed
+**Future Behavior:** Will add the source code at `inputPath` to the existing project's CPG.
 
 ### mergeProjects
 
@@ -165,9 +95,54 @@ def mergeProjects(
 ): Option[Cpg]
 ```
 
-**Parameters:**
-- `targetProjectName`: Name of the project to merge into
-- `sourceProjectName`: Name of the project to merge from
-- `deleteSource`: If true, delete the source project after merging
+**Current Behavior:** Returns `None` with a message explaining the feature is not implemented.
 
-**Returns:** The merged CPG, or None if the operation failed
+**Future Behavior:** Will merge the source project into the target project.
+
+## Future Implementation
+
+To complete this feature, one of the following approaches is needed:
+
+### Approach 1: flatgraph Library Enhancement
+Wait for or contribute to the flatgraph library to add:
+- Graph union operations
+- Node copying utilities
+- Graph merging API
+
+### Approach 2: Serialization-Based Merging
+- Export both CPGs to a serialization format
+- Merge at the file level
+- Re-import the merged CPG
+- Requires handling of node ID conflicts
+
+### Approach 3: Type-Aware Node Copying
+- Implement a comprehensive node copying mechanism
+- Handle all CPG node types explicitly
+- Map between old and new node IDs
+- Recreate all edges with updated references
+- Very complex due to the number of node types in the CPG schema
+
+### Approach 4: Source-Level Integration
+- Instead of merging binary CPGs, regenerate from source
+- This is actually what would be most correct but requires:
+  - Access to original source code
+  - Language frontend availability
+  - Potentially long regeneration times
+
+## Contributing
+
+If you're interested in implementing this feature, please:
+1. Review the code in `CpgMerger.scala`, `WorkspaceManager.scala`, and `Console.scala`
+2. Understand the flatgraph API and CPG schema
+3. Choose an implementation approach
+4. Submit a PR with the implementation
+
+The API structure is already in place, so the main work is implementing the actual merging logic.
+
+## Files
+
+- `console/src/main/scala/io/joern/console/cpgcreation/CpgMerger.scala`: CPG merging utility (placeholder)
+- `console/src/main/scala/io/joern/console/workspacehandling/WorkspaceManager.scala`: Workspace management methods
+- `console/src/main/scala/io/joern/console/Console.scala`: User-facing API
+- `console/src/test/scala/io/joern/console/workspacehandling/WorkspaceManagerExtensionTests.scala`: Unit tests
+

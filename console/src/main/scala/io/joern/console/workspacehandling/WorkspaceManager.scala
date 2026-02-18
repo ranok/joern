@@ -405,6 +405,13 @@ class WorkspaceManager[ProjectType <: Project](path: String, loader: WorkspaceLo
   /** Add source code from inputPath to an existing project. Creates a temporary CPG for the new code and merges it into
     * the existing project's CPG.
     *
+    * IMPORTANT: This is a placeholder implementation. True CPG merging at the binary level requires sophisticated
+    * handling of the flatgraph API. The current implementation will generate a CPG for the new code but cannot yet merge
+    * it with the existing CPG.
+    *
+    * Workaround: To combine multiple source directories, create a new project that includes all directories from the
+    * start, or use symbolic links to combine directories before running importCode.
+    *
     * @param projectName
     *   Name of the existing project to add code to
     * @param inputPath
@@ -414,7 +421,7 @@ class WorkspaceManager[ProjectType <: Project](path: String, loader: WorkspaceLo
     * @param cpgGenerator
     *   Function to generate CPG from code (typically provided by caller)
     * @return
-    *   The updated CPG, or None if the operation failed
+    *   None (not yet implemented)
     */
   def addToProject(
     projectName: String,
@@ -422,74 +429,22 @@ class WorkspaceManager[ProjectType <: Project](path: String, loader: WorkspaceLo
     language: String = "",
     cpgGenerator: (String, String, String) => Option[Cpg]
   ): Option[Cpg] = {
-    import io.joern.console.cpgcreation.CpgMerger
-    
-    if (!Files.exists(Paths.get(inputPath))) {
-      report(s"Input path does not exist: $inputPath")
-      return None
-    }
-
-    projectByName(projectName) match {
-      case None =>
-        report(s"Project $projectName does not exist")
-        None
-      case Some(project) =>
-        if (project.cpg.isEmpty) {
-          report(s"Project $projectName is not open. Opening it first.")
-          openProject(projectName)
-        }
-        
-        project.cpg match {
-          case None =>
-            report(s"Failed to open project $projectName")
-            None
-          case Some(targetCpg) =>
-            report(s"Generating CPG for additional code at $inputPath")
-            
-            // Generate a temporary CPG for the new code
-            val tempProjectName = s"temp_${System.currentTimeMillis()}"
-            val sourceCpgOpt = cpgGenerator(inputPath, tempProjectName, language)
-            
-            sourceCpgOpt match {
-              case None =>
-                report(s"Failed to generate CPG for $inputPath")
-                None
-              case Some(sourceCpg) =>
-                report(s"Merging new CPG into project $projectName")
-                val result = CpgMerger.mergeCpg(targetCpg, sourceCpg)
-                
-                // Close and delete the temporary CPG
-                sourceCpg.close()
-                deleteProject(tempProjectName)
-                
-                result match {
-                  case scala.util.Success(_) =>
-                    report(s"Successfully added code from $inputPath to project $projectName")
-                    
-                    // Update the project's input path metadata to include the new path
-                    val updatedInputPath = s"${project.inputPath};$inputPath"
-                    val updatedProjectFile = ProjectFile(updatedInputPath, projectName)
-                    writeProjectFile(updatedProjectFile, project.path)
-                    
-                    Some(targetCpg)
-                  case scala.util.Failure(exception) =>
-                    report(s"Failed to merge CPG: ${exception.getMessage}")
-                    exception.printStackTrace()
-                    None
-                }
-            }
-        }
-    }
+    report(s"addToProject is not yet fully implemented")
+    report(s"CPG merging at the binary level requires additional development")
+    report(s"Workaround: Create a new project that includes all source directories from the start")
+    report(s"Example: importCode(\"/path/to/combined\", \"project\") where /path/to/combined contains all code")
+    None
   }
 
   /** Merge two existing projects into a single project by adding the source project's code to the target project.
     *
-    * This method works by reading the source code paths from both projects and using the addToProject mechanism
-    * to regenerate and merge the CPGs. This approach ensures proper merging at the source level rather than
-    * trying to merge binary CPGs.
+    * IMPORTANT: This is a placeholder implementation that depends on addToProject, which is not yet fully implemented.
+    * 
+    * This method would work by reading the source code paths from both projects and using the addToProject mechanism
+    * to regenerate and merge the CPGs. However, since addToProject is not yet functional, this method will also not
+    * work as intended.
     *
-    * Note: This requires that both projects were created from source code (not imported from binary CPGs).
-    * The source code must still be accessible at the original input paths.
+    * Workaround: Create a new project that includes all source directories from the start.
     *
     * @param targetProjectName
     *   Name of the project to merge into
@@ -500,7 +455,7 @@ class WorkspaceManager[ProjectType <: Project](path: String, loader: WorkspaceLo
     * @param cpgGenerator
     *   Function to generate CPG from code (typically provided by caller)
     * @return
-    *   The merged CPG, or None if the operation failed
+    *   None (not yet implemented)
     */
   def mergeProjects(
     targetProjectName: String,
@@ -508,48 +463,11 @@ class WorkspaceManager[ProjectType <: Project](path: String, loader: WorkspaceLo
     deleteSource: Boolean = false,
     cpgGenerator: (String, String, String) => Option[Cpg]
   ): Option[Cpg] = {
-    if (targetProjectName == sourceProjectName) {
-      report("Cannot merge a project into itself")
-      return None
-    }
-
-    val targetProjectOpt = projectByName(targetProjectName)
-    val sourceProjectOpt = projectByName(sourceProjectName)
-
-    (targetProjectOpt, sourceProjectOpt) match {
-      case (None, _) =>
-        report(s"Target project $targetProjectName does not exist")
-        None
-      case (_, None) =>
-        report(s"Source project $sourceProjectName does not exist")
-        None
-      case (Some(targetProject), Some(sourceProject)) =>
-        report(s"Merging project $sourceProjectName into $targetProjectName")
-        report(s"Adding source code from ${sourceProject.inputPath} to ${targetProject.name}")
-        
-        // Use addToProject to merge the source project's code into the target
-        // This regenerates a CPG from the source code and merges it properly
-        val sourceInputPaths = sourceProject.inputPath.split(";")
-        val results = sourceInputPaths.map { inputPath =>
-          addToProject(targetProjectName, inputPath, "", cpgGenerator)
-        }
-        
-        // Check if all additions were successful
-        if (results.forall(_.isDefined)) {
-          report(s"Successfully merged projects")
-          
-          if (deleteSource) {
-            report(s"Deleting source project $sourceProjectName")
-            deleteProject(sourceProjectName)
-          }
-          
-          // Return the target project's CPG
-          targetProject.cpg
-        } else {
-          report(s"Failed to merge all source paths from project $sourceProjectName")
-          None
-        }
-    }
+    report(s"mergeProjects is not yet fully implemented")
+    report(s"This feature depends on CPG merging functionality that requires additional development")
+    report(s"Workaround: Create a new project that includes all source directories")
+    report(s"Example: Create a parent directory with all code, then run importCode on it")
+    None
   }
 
   // Kept for backward compatibility
