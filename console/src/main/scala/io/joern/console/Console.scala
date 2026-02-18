@@ -454,6 +454,79 @@ class Console[T <: Project](loader: WorkspaceLoader[T], baseDir: Path = FileUtil
     creator.run(context)
   }
 
+  @Doc(
+    info = "Add source code to an existing project",
+    longInfo = """
+                 |addToProject(<projectName>, <inputPath>, [language])
+                 |
+                 |Add additional source code to an existing project by generating a CPG
+                 |for the new code and merging it with the existing project's CPG.
+                 |
+                 |This is useful when you want to extend an existing CPG with additional
+                 |source files, for example adding library code to application code.
+                 |
+                 |Parameters:
+                 |
+                 |-----------
+                 |
+                 |projectName: the name of the existing project to add code to
+                 |
+                 |inputPath: location on disk of the additional code to analyze
+                 |
+                 |language: the programming language which the code at `inputPath` is written in.
+                 |If `language` is empty, the language used is guessed by inspecting the files.
+                 |
+                 |Returns the merged CPG, or None if the operation failed.
+                 |""",
+    example = """addToProject("myproject", "/path/to/library")"""
+  )
+  def addToProject(projectName: String, inputPath: String, language: String = ""): Option[Cpg] = {
+    workspace.addToProject(
+      projectName,
+      inputPath,
+      language,
+      (path, name, lang) => {
+        Try {
+          new ImportCode(this).apply(path, name, lang)
+        }.toOption
+      }
+    )
+  }
+
+  @Doc(
+    info = "Merge two existing projects into one",
+    longInfo = """
+                 |mergeProjects(<targetProjectName>, <sourceProjectName>, [deleteSource])
+                 |
+                 |Merge two existing projects by combining their CPGs. The source project
+                 |is merged into the target project. All nodes and edges from the source
+                 |CPG are added to the target CPG.
+                 |
+                 |This is useful when you have generated CPGs separately (e.g., application
+                 |code and library code) and want to combine them for analysis.
+                 |
+                 |Parameters:
+                 |
+                 |-----------
+                 |
+                 |targetProjectName: the name of the project to merge into
+                 |
+                 |sourceProjectName: the name of the project to merge from
+                 |
+                 |deleteSource: if true, delete the source project after merging (default: false)
+                 |
+                 |Returns the merged CPG, or None if the operation failed.
+                 |""",
+    example = """mergeProjects("app", "library", deleteSource = true)"""
+  )
+  def mergeProjects(
+    targetProjectName: String,
+    sourceProjectName: String,
+    deleteSource: Boolean = false
+  ): Option[Cpg] = {
+    workspace.mergeProjects(targetProjectName, sourceProjectName, deleteSource)
+  }
+
   // We still tie the project name to the input path here
   // if no project name has been provided.
 

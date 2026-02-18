@@ -402,6 +402,165 @@ class WorkspaceManager[ProjectType <: Project](path: String, loader: WorkspaceLo
       }
   }
 
+  /** Add source code from inputPath to an existing project. Creates a temporary CPG for the new code and merges it into
+    * the existing project's CPG.
+    *
+    * @param projectName
+    *   Name of the existing project to add code to
+    * @param inputPath
+    *   Path to the additional source code to add
+    * @param language
+    *   Programming language of the source code (optional, will be auto-detected if empty)
+    * @param cpgGenerator
+    *   Function to generate CPG from code (typically provided by caller)
+    * @return
+    *   The updated CPG, or None if the operation failed
+    */
+  def addToProject(
+    projectName: String,
+    inputPath: String,
+    language: String = "",
+    cpgGenerator: (String, String, String) => Option[Cpg]
+  ): Option[Cpg] = {
+    import io.joern.console.cpgcreation.CpgMerger
+    
+    if (!Files.exists(Paths.get(inputPath))) {
+      report(s"Input path does not exist: $inputPath")
+      return None
+    }
+
+    projectByName(projectName) match {
+      case None =>
+        report(s"Project $projectName does not exist")
+        None
+      case Some(project) =>
+        if (project.cpg.isEmpty) {
+          report(s"Project $projectName is not open. Opening it first.")
+          openProject(projectName)
+        }
+        
+        project.cpg match {
+          case None =>
+            report(s"Failed to open project $projectName")
+            None
+          case Some(targetCpg) =>
+            report(s"Generating CPG for additional code at $inputPath")
+            
+            // Generate a temporary CPG for the new code
+            val tempProjectName = s"temp_${System.currentTimeMillis()}"
+            val sourceCpgOpt = cpgGenerator(inputPath, tempProjectName, language)
+            
+            sourceCpgOpt match {
+              case None =>
+                report(s"Failed to generate CPG for $inputPath")
+                None
+              case Some(sourceCpg) =>
+                report(s"Merging new CPG into project $projectName")
+                val result = CpgMerger.mergeCpg(targetCpg, sourceCpg)
+                
+                // Close and delete the temporary CPG
+                sourceCpg.close()
+                deleteProject(tempProjectName)
+                
+                result match {
+                  case scala.util.Success(_) =>
+                    report(s"Successfully added code from $inputPath to project $projectName")
+                    
+                    // Update the project's input path metadata to include the new path
+                    val updatedInputPath = s"${project.inputPath};$inputPath"
+                    val updatedProjectFile = ProjectFile(updatedInputPath, projectName)
+                    writeProjectFile(updatedProjectFile, project.path)
+                    
+                    Some(targetCpg)
+                  case scala.util.Failure(exception) =>
+                    report(s"Failed to merge CPG: ${exception.getMessage}")
+                    exception.printStackTrace()
+                    None
+                }
+            }
+        }
+    }
+  }
+
+  /** Merge two existing projects into a single project. The source project will be merged into the target project.
+    *
+    * @param targetProjectName
+    *   Name of the project to merge into
+    * @param sourceProjectName
+    *   Name of the project to merge from
+    * @param deleteSource
+    *   If true, delete the source project after merging (default: false)
+    * @return
+    *   The merged CPG, or None if the operation failed
+    */
+  def mergeProjects(
+    targetProjectName: String,
+    sourceProjectName: String,
+    deleteSource: Boolean = false
+  ): Option[Cpg] = {
+    import io.joern.console.cpgcreation.CpgMerger
+    
+    if (targetProjectName == sourceProjectName) {
+      report("Cannot merge a project into itself")
+      return None
+    }
+
+    val targetProjectOpt = projectByName(targetProjectName)
+    val sourceProjectOpt = projectByName(sourceProjectName)
+
+    (targetProjectOpt, sourceProjectOpt) match {
+      case (None, _) =>
+        report(s"Target project $targetProjectName does not exist")
+        None
+      case (_, None) =>
+        report(s"Source project $sourceProjectName does not exist")
+        None
+      case (Some(targetProject), Some(sourceProject)) =>
+        // Ensure both projects are open
+        if (targetProject.cpg.isEmpty) {
+          report(s"Opening target project $targetProjectName")
+          openProject(targetProjectName)
+        }
+        if (sourceProject.cpg.isEmpty) {
+          report(s"Opening source project $sourceProjectName")
+          openProject(sourceProjectName)
+        }
+
+        (targetProject.cpg, sourceProject.cpg) match {
+          case (None, _) =>
+            report(s"Failed to open target project $targetProjectName")
+            None
+          case (_, None) =>
+            report(s"Failed to open source project $sourceProjectName")
+            None
+          case (Some(targetCpg), Some(sourceCpg)) =>
+            report(s"Merging project $sourceProjectName into $targetProjectName")
+            val result = CpgMerger.mergeCpg(targetCpg, sourceCpg)
+            
+            result match {
+              case scala.util.Success(_) =>
+                report(s"Successfully merged projects")
+                
+                // Update the target project's input path metadata
+                val updatedInputPath = s"${targetProject.inputPath};${sourceProject.inputPath}"
+                val updatedProjectFile = ProjectFile(updatedInputPath, targetProjectName)
+                writeProjectFile(updatedProjectFile, targetProject.path)
+                
+                if (deleteSource) {
+                  report(s"Deleting source project $sourceProjectName")
+                  deleteProject(sourceProjectName)
+                }
+                
+                Some(targetCpg)
+              case scala.util.Failure(exception) =>
+                report(s"Failed to merge projects: ${exception.getMessage}")
+                exception.printStackTrace()
+                None
+            }
+        }
+    }
+  }
+
   // Kept for backward compatibility
   @deprecated("", "")
   def recordExists(inputPath: String): Boolean = projectExists(inputPath)
